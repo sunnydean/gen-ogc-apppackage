@@ -1,0 +1,13 @@
+# pixi environments
+.pixi/*
+!.pixi/config.toml
+
+# Local generator output and Python caches
+runs/
+__pycache__/
+
+# Local environment secrets
+.env
+.vscode
+tests/test_remote.py
+todo.md

@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 900" style="width:100%;min-width:900px"><defs><marker id="labelled-call" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M 0 0 L 10 5 L 0 10 Z" fill="#94a3b8"/></marker></defs><path d="M 590.2536009607533 401.88116008677383 L 746.2490628449651 314.0932900342899" stroke="#94a3b8" stroke-width="2"  marker-end="url(#labelled-call)"><title>cluster_1 → cluster_10</title></path><path d="M 585.1599029569376 433.8021624871085 L 689.5524079800484 547.733615373493" stroke="#94a3b8" stroke-width="2"  marker-end="url(#labelled-call)"><title>cluster_1 → cluster_2</title></path><path d="M 543.5686076227009 424.56847987009525 L 370.2753456691464 496.23313323833736" stroke="#94a3b8" stroke-width="2"  marker-end="url(#labelled-call)"><title>cluster_1 → cluster_5</title></path><path d="M 550.0305976258957 395.46247147532745 L 446.4300571038511 282.39288652550624" stroke="#94a3b8" stroke-width="2"  marker-end="url(#labelled-call)"><title>cluster_1 → cluster_8</title></path><path d="M 792.5255399637401 286.30835915209803 L 925.9601808160904 200.58828807808925" stroke="#94a3b8" stroke-width="2"  marker-end="url(#labelled-call)"><title>cluster_10 → cluster_9</title></path><path d="M 726.0319718131024 587.5487057315438 L 820.8413320107703 691.0331004307169" stroke="#94a3b8" stroke-width="2"  marker-end="url(#labelled-call)"><title>cluster_2 → cluster_6</title></path><path d="M 319.8848817239797 515.5925542732293 L 156.13043009230142 573.431192407028" stroke="#94a3b8" stroke-width="2"  marker-end="url(#labelled-call)"><title>cluster_5 → cluster_4</title></path><path d="M 857.3216399570881 730.8475089394267 L 947.5907298117498 829.3564702326133" stroke="#94a3b8" stroke-width="2"  marker-end="url(#labelled-call)"><title>cluster_6 → cluster_3</title></path><path d="M 409.9501237661164 242.57813469260347 L 314.7760544902886 138.70211672361867" stroke="#94a3b8" stroke-width="2"  marker-end="url(#labelled-call)"><title>cluster_8 → cluster_7</title></path><defs><marker id="labelled-artifact" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M 0 0 L 10 5 L 0 10 Z" fill="#c65e19"/></marker></defs><path d="M 714.3444434374258 543.050685249297 L 764.3223208408115 327.63670085291864" stroke="#c65e19" stroke-width="2" stroke-dasharray="7 4" marker-end="url(#labelled-artifact)"><title>collocation_data</title></path><path d="M 682.8308644650914 564.0510793920873 L 372.01015742498885 511.5932332083072" stroke="#c65e19" stroke-width="2" stroke-dasharray="7 4" marker-end="url(#labelled-artifact)"><title>lightning_groups
+track_counts</title></path><path d="M 690.9036468103138 549.2081165246921 L 446.4301694144327 282.39278361984407" stroke="#c65e19" stroke-width="2" stroke-dasharray="7 4" marker-end="url(#labelled-artifact)"><title>collocation_data</title></path><path d="M 352.74764722420656 482.30980568129974 L 418.5252741397404 288.26617434152735" stroke="#c65e19" stroke-width="2" stroke-dasharray="7 4" marker-end="url(#labelled-artifact)"><title>catalogue.json</title></path><path d="M 453.3513196332019 264.6557446137112 L 742.8260890539274 297.2301156874389" stroke="#c65e19" stroke-width="2" stroke-dasharray="7 4" marker-end="url(#labelled-artifact)"><title>parquet_data</title></path><g><title>C1 · CLI root entrypoint
+entry point
+lightning2ec.cli.main</title><circle cx="567.5951462959687" cy="414.6324122685755" r="25" fill="hsl(0, 65%, 82%)" stroke="#475569" stroke-width="3"/><text x="567.5951462959687" y="418.6324122685755" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#0f172a">C1</text></g><text x="567.5951462959687" y="456.6324122685755" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#0f172a">CLI root entrypoint</text><g><title>C2 · Pipeline CLI command
+exposed command
+lightning2ec.cli.run_pipeline</title><circle cx="708.4682997687842" cy="568.3779617626824" r="25" fill="hsl(138, 65%, 82%)" stroke="#475569" stroke-width="3"/><text x="708.4682997687842" y="572.3779617626824" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#0f172a">C2</text></g><text x="708.4682997687842" y="610.3779617626824" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#0f172a">Pipeline CLI command</text><g><title>C3 · Lightning data collocation processing
+internal functions
+lightning2ec.clustering._filter_by_quality
+lightning2ec.clustering.parent_clustering
+lightning2ec.clustering.subclustering
+lightning2ec.collocation.collocate_glm_to_ec
+lightning2ec.collocation.collocate_li_to_ec
+lightning2ec.collocation.summarize_vs_cpr
+lightning2ec.earthcare_io.fetch_earthcare_data
+lightning2ec.lightning_io._get_datastore
+lightning2ec.lightning_io._iter_hours
+lightning2ec.lightning_io._parse_glm_timefield
+lightning2ec.lightning_io._to_datetime
+lightning2ec.lightning_io.download_li
+lightning2ec.lightning_io.load_merge_glm
+lightning2ec.lightning_pipeline.process_one_source
+lightning2ec.parallax._get_parallax_shift_xyz
+lightning2ec.parallax._get_satellite_elevation
+lightning2ec.parallax._get_slant_cloud_distance
+lightning2ec.parallax.apply_parallax
+lightning2ec.preprocessing._interpolate_cth
+lightning2ec.preprocessing.buffer_lightning_data
+lightning2ec.preprocessing.merge_li_datasets
+lightning2ec.preprocessing.prepare_ec
+lightning2ec.token_handling._load_credentials
+lightning2ec.token_handling.get_earthcare_token
+lightning2ec.token_handling.get_eumetsat_token
+lightning2ec.writers.lightning_output_path
+lightning2ec.writers.track_output_path
+lightning2ec.writers.write_lightning_netcdf
+lightning2ec.writers.write_track_netcdf</title><circle cx="966.5075128031314" cy="850.0" r="25" fill="hsl(275, 65%, 82%)" stroke="#475569" stroke-width="1"/><text x="966.5075128031314" y="854.0" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#0f172a">C3</text></g><text x="966.5075128031314" y="892.0" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#0f172a">Lightning data collocation processing</text><g><title>C4 · Storm catalogue file processor
+internal functions
+lightning2ec.create_storm_catalogue._find_counts_sidecar_path
+lightning2ec.create_storm_catalogue._infer_source_from_filename
+lightning2ec.create_storm_catalogue.process_one_file</title><circle cx="129.72887471916601" cy="582.756312989587" r="25" fill="hsl(52, 65%, 82%)" stroke="#475569" stroke-width="1"/><text x="129.72887471916601" y="586.756312989587" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#0f172a">C4</text></g><text x="129.72887471916601" y="624.756312989587" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#0f172a">Storm catalogue file processor</text><g><title>C5 · Create storm catalogue CLI
+exposed command
+lightning2ec.create_storm_catalogue.main</title><circle cx="344.4006117133197" cy="506.9335137322817" r="25" fill="hsl(190, 65%, 82%)" stroke="#475569" stroke-width="3"/><text x="344.4006117133197" y="510.9335137322817" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#0f172a">C5</text></g><text x="344.4006117133197" y="548.9335137322817" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#0f172a">Create storm catalogue CLI</text><g><title>C6 · Collocation runtime orchestration
+internal functions
+lightning2ec.earthcare_io._parse_orbit_frame_from_id
+lightning2ec.earthcare_io.find_ec_file_pairs
+lightning2ec.earthcare_io.query_catalogue
+lightning2ec.lightning_pipeline.run_date_range
+lightning2ec.runtime._add_if_platform_allowed
+lightning2ec.runtime._ec_time_window
+lightning2ec.runtime._glm_east_platform
+lightning2ec.runtime._in_lon_ranges
+lightning2ec.runtime._set_log_day
+lightning2ec.runtime._set_monthly_log_file
+lightning2ec.runtime.choose_lightning_sources
+lightning2ec.runtime.configure_logging
+lightning2ec.runtime.iter_processing_days</title><circle cx="839.7560557508052" cy="711.6785170125677" r="25" fill="hsl(328, 65%, 82%)" stroke="#475569" stroke-width="1"/><text x="839.7560557508052" y="715.6785170125677" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#0f172a">C6</text></g><text x="839.7560557508052" y="753.6785170125677" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#0f172a">Collocation runtime orchestration</text><g><title>C7 · NetCDF and JSON to Parquet conversion
+internal functions
+lightning2ec.nc_to_parquet.convert_nc_to_parquet
+lightning2ec.nc_to_parquet.process_col2_nc_to_geoparquet
+lightning2ec.nc_to_parquet.transform_json_to_parquet
+lightning2ec.nc_to_parquet.yield_files_by_month</title><circle cx="295.8606916019253" cy="118.057285728875" r="25" fill="hsl(105, 65%, 82%)" stroke="#475569" stroke-width="1"/><text x="295.8606916019253" y="122.057285728875" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#0f172a">C7</text></g><text x="295.8606916019253" y="160.057285728875" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#0f172a">NetCDF and JSON to Parquet conversion</text><g><title>C8 · Parquet postprocessing CLI
+exposed command
+lightning2ec.nc_to_parquet.main</title><circle cx="427.5143893053109" cy="261.7483349020083" r="25" fill="hsl(242, 65%, 82%)" stroke="#475569" stroke-width="3"/><text x="427.5143893053109" y="265.7483349020083" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#0f172a">C8</text></g><text x="427.5143893053109" y="303.7483349020083" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#0f172a">Parquet postprocessing CLI</text><g><title>C9 · STAC item generation helpers
+internal functions
+lightning2ec.stac_gen._add_parquet_item
+lightning2ec.stac_gen._variable_metadata</title><circle cx="949.5179424807015" cy="185.45448930338034" r="25" fill="hsl(20, 65%, 82%)" stroke="#475569" stroke-width="1"/><text x="949.5179424807015" y="189.45448930338034" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#0f172a">C9</text></g><text x="949.5179424807015" y="227.45448930338034" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#0f172a">STAC item generation helpers</text><g><title>C10 · STAC catalogue generation CLI
+exposed command
+lightning2ec.stac_gen.main</title><circle cx="770.650475560887" cy="300.361172300042" r="25" fill="hsl(158, 65%, 82%)" stroke="#475569" stroke-width="3"/><text x="770.650475560887" y="304.361172300042" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#0f172a">C10</text></g><text x="770.650475560887" y="342.361172300042" text-anchor="middle" font-family="sans-serif" font-size="12" fill="#0f172a">STAC catalogue generation CLI</text></svg>
