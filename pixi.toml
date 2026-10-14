@@ -6,16 +6,11 @@ platforms = ["osx-arm64"]
 version = "0.1.0"
 exclude-newer = "15d"
 
-[tasks]
-
 [dependencies]
 cwltool = ">=3.2.20260720092025,<4"
 click = ">=8.5.0,<9"
 pystac = ">=1.15.2,<2"
 scikit-learn = ">=1.9.1,<2"
+networkx = ">=3.6.1,<4"
 pyyaml = ">=6.0.3,<7"
 ipykernel = ">=7.3.0,<8"
-
-[pypi-dependencies]
-tree-sitter = ">=0.26.0, <0.27"
-tree-sitter-python = ">=0.25.0, <0.26"

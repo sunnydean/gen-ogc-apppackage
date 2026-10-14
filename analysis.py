@@ -160,7 +160,7 @@ def imports(nodes, package):
 
 
 def body_nodes(node):
-    """Walk one scope; nested functions, classes and lambdas remain unresolved."""
+    """Walk one scope; function and class bodies are analysed separately."""
     for child in ast.iter_child_nodes(node):
         if not isinstance(
             child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)
@@ -170,10 +170,26 @@ def body_nodes(node):
 
 
 def analyze_repo(repo_url, entrypoints=None):
-    """Follow direct calls from main guards, console scripts or supplied function IDs."""
+    """Follow source calls and function references from executable entry points."""
     files, provenance = github_source(repo_url)
     graph = nx.DiGraph(provenance=provenance, context={}, commands={})
-    modules, functions, roots = {}, {}, []
+    modules, functions, classes, roots, guards = {}, {}, set(), [], []
+
+    def collect(node, module, prefix, owner=None, parents=()):
+        if isinstance(node, ast.ClassDef):
+            prefix = owner = prefix + "." + node.name
+            classes.add(prefix)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            name = prefix + "." + node.name
+            functions[name] = (module, node, owner, parents)
+            start = min([node.lineno] + [item.lineno for item in node.decorator_list])
+            graph.add_node(name, file=modules[module][3],
+                           source="\n".join(files[modules[module][3]].splitlines()[start - 1:node.end_lineno]),
+                           parameters=ast.unparse(node.args), calls=[], io=None, entrypoint=False)
+            prefix, parents = name, (name, *parents)
+        for child in ast.iter_child_nodes(node):
+            collect(child, module, prefix, owner, parents)
+
     for path, source in files.items():
         if not path.endswith(".py"):
             graph.graph["context"][path] = source
@@ -184,40 +200,36 @@ def analyze_repo(repo_url, entrypoints=None):
         tree = ast.parse(source)
         package = module if path.endswith("/__init__.py") else module.rpartition(".")[0]
         aliases = imports(tree.body, package)
-        modules[module] = (tree, aliases, package)
+        modules[module] = (tree, aliases, package, path)
         definitions = (ast.FunctionDef, ast.AsyncFunctionDef)
         graph.graph["context"][path] = "\n".join(
             ast.get_source_segment(source, item)
             for item in tree.body
             if not isinstance(item, definitions)
         )
-        for function in tree.body:
-            if isinstance(function, definitions):
-                name = module + "." + function.name
-                start = min(
-                    [function.lineno]
-                    + [item.lineno for item in function.decorator_list]
-                )
-                functions[name] = (module, function)
-                graph.add_node(
-                    name,
-                    file=path,
-                    source="\n".join(
-                        source.splitlines()[start - 1 : function.end_lineno]
-                    ),
-                    parameters=ast.unparse(function.args),
-                    calls=[],
-                    io=None,  # Resource effects are inferred later in semantic.py.
-                    entrypoint=False,
-                )
+        collect(tree, module, module)
 
-    def target(expression, module, aliases, shadowed=()):
-        parts = ast.unparse(expression).split(".")
-        name = ".".join([aliases.get(parts[0], module + "." + parts[0]), *parts[1:]])
-        return name if parts[0] not in shadowed and name in functions else None
+    def qualified(expression, module, aliases, scopes=(), shadowed=(), instances=None):
+        if isinstance(expression, ast.Name):
+            if expression.id in (instances or {}):
+                return instances[expression.id]
+            if expression.id in shadowed:
+                return None
+            for scope in scopes:
+                candidate = scope + "." + expression.id
+                if candidate in functions or candidate in classes:
+                    return candidate
+            return aliases.get(expression.id, module + "." + expression.id)
+        if isinstance(expression, ast.Attribute):
+            base = qualified(expression.value, module, aliases, scopes, shadowed, instances)
+            return base + "." + expression.attr if base else None
+        if isinstance(expression, ast.Call):
+            name = qualified(expression.func, module, aliases, scopes, shadowed, instances)
+            return name if name in classes else None
+        return None
 
-    for name, (module, function) in functions.items():
-        _, aliases, package = modules[module]
+    def observe(name, module, function, owner=None, parents=()):
+        _, aliases, package, _ = modules[module]
         body = ast.Module(body=function.body, type_ignores=[])
         nodes = list(body_nodes(body))
         aliases = {**aliases, **imports(nodes, package)}
@@ -226,9 +238,24 @@ def analyze_repo(repo_url, entrypoints=None):
             for node in nodes
             if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store)
         }
-        shadowed.update(
-            arg.arg for arg in ast.walk(function.args) if isinstance(arg, ast.arg)
-        )
+        assigned = set(shadowed)
+        args = getattr(function, "args", None)
+        if args:
+            shadowed.update(arg.arg for arg in ast.walk(args) if isinstance(arg, ast.arg))
+        scopes = (name, *parents, module)
+        receivers = (args.posonlyargs + args.args)[:1] if args and name.rpartition(".")[0] == owner else []
+        instances = {arg.arg: owner for arg in receivers
+                     if arg.arg in ("self", "cls") and arg.arg not in assigned
+                     and not any(ast.unparse(item) == "staticmethod" for item in function.decorator_list)}
+        for node in nodes:
+            if isinstance(node, (ast.Assign, ast.AnnAssign)) and isinstance(node.value, ast.Call):
+                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                constructor = qualified(node.value.func, module, aliases, scopes, shadowed)
+                for target in targets:
+                    if (isinstance(target, ast.Name) and constructor in classes
+                            and sum(isinstance(item, ast.Name) and isinstance(item.ctx, ast.Store)
+                                    and item.id == target.id for item in nodes) == 1):
+                        instances[target.id] = constructor
         # Keep symbolic definitions and accesses, including ones with no function call.
         # Source retains branches and loops; these lists do not assert execution order.
         graph.nodes[name].update(
@@ -241,7 +268,10 @@ def analyze_repo(repo_url, entrypoints=None):
                      if isinstance(node, ast.Subscript) and isinstance(node.ctx, ast.Load)],
         )
         for call in (node for node in nodes if isinstance(node, ast.Call)):
-            callee = target(call.func, module, aliases, shadowed)
+            callee = qualified(call.func, module, aliases, scopes, shadowed, instances)
+            if callee in classes:
+                callee += ".__init__"
+            callee = callee if callee in functions else None
             graph.nodes[name]["calls"].append(
                 {
                     "call": ast.unparse(call.func),
@@ -253,19 +283,32 @@ def analyze_repo(repo_url, entrypoints=None):
             )
             if callee:
                 graph.add_edge(name, callee, kind="call")
+        references = {qualified(node, module, aliases, scopes, shadowed, instances)
+                      for node in nodes if isinstance(node, (ast.Name, ast.Attribute))
+                      and isinstance(node.ctx, ast.Load)} & functions.keys()
+        graph.nodes[name]["references"] = sorted(references)
+        for referenced in sorted(references):
+            if not graph.has_edge(name, referenced):
+                graph.add_edge(name, referenced, kind="reference")
 
-    for module, (tree, aliases, _) in modules.items():
+    for name, (module, function, owner, parents) in functions.items():
+        observe(name, module, function, owner, parents)
+        for decorator in function.decorator_list:
+            expression = decorator.func if isinstance(decorator, ast.Call) else decorator
+            receiver = expression.value if isinstance(expression, ast.Attribute) else expression
+            owner = qualified(receiver, module, modules[module][1], parents)
+            if owner in functions and owner != name and not graph.has_edge(owner, name):
+                graph.add_edge(owner, name, kind="reference", relation="decorator")
+
+    for module, (tree, aliases, _, _) in modules.items():
         for node in body_nodes(tree):
             if isinstance(node, ast.If) and ast.unparse(node.test) in (
                 "__name__ == '__main__'",
                 "'__main__' == __name__",
             ):
-                roots.extend(
-                    callee
-                    for call in body_nodes(node)
-                    if isinstance(call, ast.Call)
-                    if (callee := target(call.func, module, aliases))
-                )
+                guards.append((module, node))
+                roots.extend(callee for call in body_nodes(node) if isinstance(call, ast.Call)
+                             if (callee := qualified(call.func, module, aliases)) in functions)
             if (
                 isinstance(node, ast.Call)
                 and isinstance(node.func, ast.Attribute)
@@ -273,10 +316,10 @@ def analyze_repo(repo_url, entrypoints=None):
                 and node.args
             ):
                 owner, child = (
-                    target(node.func.value, module, aliases),
-                    target(node.args[0], module, aliases),
+                    qualified(node.func.value, module, aliases),
+                    qualified(node.args[0], module, aliases),
                 )
-                if owner and child:
+                if owner in functions and child in functions:
                     command = next(
                         (
                             kw.value.value
@@ -298,16 +341,49 @@ def analyze_repo(repo_url, entrypoints=None):
             if name in graph:
                 roots.append(name)
                 graph.graph["commands"][command] = name
-    roots = list(dict.fromkeys(entrypoints if entrypoints is not None else roots))
+    command_sources = {command: {"kind": "registered", "function": name}
+                       for command, name in graph.graph["commands"].items()}
+    guarded_functions = {}
+    for module, guard in guards:
+        called = {callee for call in body_nodes(guard) if isinstance(call, ast.Call)
+                  if (callee := qualified(call.func, module, modules[module][1])) in functions}
+        if any(nx.has_path(graph, callee, target) for callee in called
+               for target in graph.graph["commands"].values()):
+            continue
+        name, path = module + ".__main__", modules[module][3]
+        graph.add_node(name, file=path, source=ast.get_source_segment(files[path], guard),
+                       parameters="", calls=[], io=None, entrypoint=False)
+        observe(name, module, guard)
+        command = re.sub(r"[^\w-]", "_", module.removesuffix(".__main__"))
+        graph.graph["commands"][command] = name
+        command_sources[command] = {"kind": "main_guard", "function": name,
+                                   "baseCommand": (["python", path] if module == "__main__" else
+                                                   ["python", "-m", module.removesuffix(".__main__")]),
+                                   "file": path}
+        if len(called) == 1:
+            guarded_functions.setdefault(next(iter(called)), []).append(name)
+        roots.append(name)
+    if entrypoints is not None:
+        roots = [guarded_functions[name][0] if len(guarded_functions.get(name, [])) == 1 else name
+                 for name in entrypoints]
+    roots = list(dict.fromkeys(roots))
     if not roots or any(name not in graph for name in roots):
         raise ValueError(
             "Provide ENTRYPOINTS as existing module.function names; none were found or a name is unknown."
         )
-    roots = [
-        name
-        for name in roots
-        if not any(other != name and nx.has_path(graph, other, name) for other in roots)
-    ]
+    # Keep one representative of mutually reachable roots, rather than removing all.
+    roots = [name for index, name in enumerate(roots)
+             if not any(other != name and nx.has_path(graph, other, name)
+                        and (not nx.has_path(graph, name, other) or roots.index(other) < index)
+                        for other in roots)]
+    for name in roots:
+        if entrypoints is not None and not any(nx.has_path(graph, name, target)
+                                               for target in graph.graph["commands"].values()):
+            command = re.sub(r"[^\w-]", "_", name)
+            graph.graph["commands"][command] = name
+            command_sources[command] = {"kind": "selected_function", "function": name,
+                                       "baseCommand": None,
+                                       "uncertainty": "No executable interface found; documentation must supply one."}
     reached = list(
         dict.fromkeys(name for root in roots for name in nx.bfs_tree(graph, root))
     )
@@ -320,6 +396,14 @@ def analyze_repo(repo_url, entrypoints=None):
         for command, name in graph.graph["commands"].items()
         if name in result
     }
+    result.graph["command_sources"] = {command: command_sources[command]
+                                       for command in result.graph["commands"]}
+    # Unresolved calls must not make their possible implementations disappear.
+    for name in sorted(functions.keys() - result.nodes):
+        module = functions[name][0]
+        path = modules[module][3]
+        if name.count(".") == module.count(".") + 1:
+            result.graph["context"][path] += "\n" + graph.nodes[name]["source"]
     for name in roots:
         result.nodes[name]["entrypoint"] = True
     # Exposed commands can become CWL steps; their internal functions are substeps.
@@ -327,7 +411,7 @@ def analyze_repo(repo_url, entrypoints=None):
     calls = nx.DiGraph()
     calls.add_nodes_from(result)
     calls.add_edges_from((source, target) for source, target, edge in result.edges(data=True)
-                         if edge["kind"] == "call" and target not in commands.values())
+                         if edge["kind"] in ("call", "reference") and target not in commands.values())
     for name, node in result.nodes(data=True):
         node.update(commands=[command for command, target in commands.items() if target == name],
                     used_by=[])
@@ -352,7 +436,7 @@ def cluster_graph(graph, distance_threshold=4.0, *, separate_entrypoints=True):
     connections.add_nodes_from(sorted(graph))
     connections.add_edges_from(sorted(
         (source, target) for source, target, edge in graph.edges(data=True)
-        if source != target and edge["kind"] in ("call", "command")
+        if source != target and edge["kind"] in ("call", "reference", "command")
     ))
     # Keep command nodes in paths so their sibling helpers can cluster together.
     distances = dict(nx.all_pairs_shortest_path_length(connections))
@@ -402,7 +486,7 @@ def cluster_view(graph):
         source, target = node_ids[source], node_ids[target]
         if source == target:
             continue
-        if edge['kind'] in ('call', 'command'):
+        if edge['kind'] in ('call', 'reference', 'command'):
             calls.add((source, target))
         if edge.get('artifacts'):
             artifacts.setdefault((source, target), []).extend(item['artifact'] for item in edge['artifacts'])
@@ -460,7 +544,7 @@ def cluster_view(graph):
              'Cluster graph' if clustered else 'Function graph before clustering')
     count = f'{len(clusters)} cluster nodes · {len(graph)} functions' if clustered else f'{len(graph)} function nodes'
     legend = ('Each circle is a cluster; expand its details to inspect member functions' if clustered else 'Each circle is a function')
-    legend += '. Heavy outlines mark entry points and commands. Grey arrows show calls and command registration'
+    legend += '. Heavy outlines mark entry points and commands. Grey arrows show calls, function references and command registration'
     if clustered:
         legend += ' · Colours identify clusters'
     if artifacts:

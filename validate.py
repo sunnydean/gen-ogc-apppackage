@@ -268,13 +268,16 @@ def render_command(command, interface, container=None, external_inputs=None):
 def check_io(command, tool, step, interface):
     """Check declared ports and bindings against the source-inferred I/O contract."""
     for direction in ("inputs", "outputs"):
+        if set(tool.get(direction, {})) != set(interface[direction]):
+            raise ValueError(f"{command}: {direction} must match the reviewed interface.")
         for port, expected in interface[direction].items():
             expected = expected if isinstance(expected, dict) else {"type": expected}
             actual = tool.get(direction, {}).get(port, {})
             actual = actual if isinstance(actual, dict) else {"type": actual}
-            for field, value in expected.items():
-                if field not in ("label", "doc") and (field not in actual or actual[field] != value):
-                    raise ValueError(f"{command}.{port}: expected {direction} {field}={value!r} from the graph.")
+            expected = {key: value for key, value in expected.items() if key not in ("label", "doc")}
+            actual = {key: value for key, value in actual.items() if key not in ("label", "doc")}
+            if actual != expected:
+                raise ValueError(f"{command}.{port}: {direction} type and bindings differ from the reviewed interface.")
             if direction == "inputs":
                 binding = step.get("in", {}).get(port)
                 if isinstance(binding, dict):
@@ -285,11 +288,16 @@ def check_io(command, tool, step, interface):
                     raise ValueError(f"{command}.{port}: expected input must be wired or given a step default.")
             elif port not in step.get("out", []):
                 raise ValueError(f"{command}.{port}: expected output is missing from step.out.")
-    if tool.get("arguments", []) != interface["arguments"]:
-        raise ValueError(f"{command}: arguments differ from the graph's I/O bindings.")
-    for name, expected in interface["requirements"].items():
-        if tool["requirements"].get(name) != expected:
-            raise ValueError(f"{command}: expected {name}={expected!r} from the graph.")
+    defaults = {"arguments": [], "requirements": {}, "hints": {}}
+    descriptive = {"id", "class", "cwlVersion", "$namespaces", "$schemas", "label", "doc", "inputs", "outputs"}
+    for field in set(tool) | set(interface):
+        if field in descriptive or field.startswith("s:"):
+            continue
+        actual, expected = tool.get(field, defaults.get(field)), interface.get(field, defaults.get(field))
+        if field == "baseCommand":
+            actual, expected = aslist(actual), aslist(expected if expected is not None else command)
+        if actual != expected:
+            raise ValueError(f"{command}: {field} differs from the reviewed interface.")
 
 
 def check_graph(document, graph):
@@ -303,6 +311,12 @@ def check_graph(document, graph):
     steps = nodes["main"]["steps"]
     if set(steps) != set(graph.graph["commands"]):
         raise ValueError("Workflow steps must match the graph commands.")
+    features = {"SubworkflowFeatureRequirement", "ScatterFeatureRequirement",
+                "MultipleInputFeatureRequirement", "StepInputExpressionRequirement"}
+    for owner in [nodes["main"], *steps.values()]:
+        overrides = (set(owner.get("requirements", {})) | set(owner.get("hints", {}))) - features
+        if overrides:
+            raise ValueError(f"Workflow/step execution settings must stay in the reviewed tools: {sorted(overrides)}.")
     if document.get("$namespaces", {}).get("s") != "https://schema.org/":
         raise ValueError("Declare s: https://schema.org/ in the document's $namespaces.")
     clusters = graph.graph["clusters"]
@@ -310,7 +324,12 @@ def check_graph(document, graph):
 
     connections, expected_outputs, consumed = set(), set(), set()
     for command, step in steps.items():
+        if any(field in step for field in ("when", "scatter", "scatterMethod")) or any(
+                isinstance(binding, dict) and "valueFrom" in binding for binding in step.get("in", {}).values()):
+            raise ValueError(f"{command}: unreviewed step transformations are outside the fixed interface.")
         tool = nodes[step["run"].lstrip("#")]
+        if tool["class"] != "CommandLineTool":
+            raise ValueError(f"{command}: expected the reviewed CommandLineTool.")
         requirements = tool["requirements"]
         if "ShellCommandRequirement" in requirements or "ShellCommandRequirement" in tool.get("hints", {}):
             raise ValueError("Shell adapters are outside this generator's scope.")

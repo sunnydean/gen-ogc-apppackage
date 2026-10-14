@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+from copy import deepcopy
 from urllib.request import Request, urlopen
 
 import networkx as nx
@@ -135,10 +136,12 @@ def infer_io_connections(graph, ask, max_attempts=3):
     graph.graph.pop("io_uncertainties", None)
     evidence = {
         "commands": commands,
+        "command_sources": graph.graph.get("command_sources", {}),
         "container_image": graph.graph["container_image"],
         "container": graph.graph["container"],
         "external_inputs": {command: graph.nodes[name]["external_inputs"] for command, name in commands.items()},
-        "calls": [(a, b) for a, b, edge in graph.edges(data=True) if edge["kind"] in ("call", "command")],
+        "calls": [(a, b, edge["kind"]) for a, b, edge in graph.edges(data=True)
+                  if edge["kind"] in ("call", "command", "reference")],
         "io": {name: {**{key: node[key] for key in ("parameters", "bindings", "returns")},
                       "calls": [call for call in node["calls"] if call["target"]],
                       "resources": node["io"]} for name, node in graph.nodes(data=True)},
@@ -172,6 +175,7 @@ is outside this generator's scope; use a non-nullable File/Directory instead.
 Repairs cannot drop these inputs or replace their bindings with literal paths.
 An environment value must be a string, including when optional inputs are absent.
 Follow calls, bindings and resource I/O to connect exact producer/consumer ports.
+Reference edges retain callbacks/decorators; they do not assert a function ran.
 Shared credentials or network endpoints are not artifacts. Do not invent commands
 or expose internal temporary files. Keep unresolved relationships in uncertainties.
 Source defaults belong in tools; small-run overrides belong in the example job.
@@ -262,37 +266,67 @@ def add_substeps(document, graph):
 
 
 def generate_cwl(graph, ask, previous=None, findings=None):
-    """Generate one complete CWL/job candidate using the graph's fixed connections."""
+    """Build reviewed CWL structure; ask Gemini only for descriptions and job values."""
     if "io_uncertainties" not in graph.graph:
         raise ValueError("Infer I/O connections before generating CWL.")
-    context = {
-        "graph": {key: graph.graph[key] for key in
-                  ("commands", "container_image", "clusters", "io_uncertainties", "extra_docs")},
-        "interfaces": {command: graph.nodes[name]["interface"] for command, name in graph.graph["commands"].items()},
-        "connections": [item for _, _, edge in graph.edges(data=True) for item in edge.get("artifacts", [])],
-        "previous": previous, "findings": findings or [],
-    }
-    candidate = ask(
-        """Generate a packed CWL v1.2 OGC application package.
-Return {cwl: document, job: object}. Use #main and one CommandLineTool per command.
-Step IDs are command names; copy baseCommand from each interface (default: command
-name). Use mappings for ports, steps, step
-inputs, hints and requirements. Include DockerRequirement with graph.container_image.
-Copy the reviewed interfaces exactly, including arguments and environment settings.
-Preserve the exact connections: source/source_output -> target/target_input.
-Wire every input or give a step default; list every output in step.out. Expose
-outputs unless consumed by another step. Process IDs and input/output IDs must
-not collide. Use simple CWL parameter references, no JavaScript or shell adapters.
-Clusters are internal scientific substeps, not additional executables. Their
-s:hasPart metadata is added automatically. Include schema.org softwareVersion,
-short labels and one-sentence docs (at most 40 words each).
-Every workflow input needs both label and doc, as required by the OGC validator.
-Derive the example job from supplied documentation, using explicit minimal-run
-settings. Input paths may be unavailable locally: preserve provided paths. If no
-path is given, use a clearly marked /REPLACE_ME/ placeholder and explain it briefly
-in the input doc. Do not fetch data or claim runtime/compute has been verified.
-Correct all validation findings without changing the checked interfaces.
-""" + json.dumps(context, ensure_ascii=False)
+    connections = [item for _, _, edge in graph.edges(data=True) for item in edge.get("artifacts", [])]
+    consumed = {(item["source"], item["source_output"]) for item in connections}
+    main = {"class": "Workflow", "id": "#main", "inputs": {}, "outputs": {}, "steps": {}}
+    tools = {}
+    for command, name in graph.graph["commands"].items():
+        interface = deepcopy(graph.nodes[name]["interface"])
+        tool = tools[command] = {"class": "CommandLineTool", "id": f"#tool_{command}",
+                                 "baseCommand": command, **interface}
+        for direction in ("inputs", "outputs"):
+            tool[direction] = {port: value if isinstance(value, dict) else {"type": value}
+                               for port, value in tool[direction].items()}
+        step = main["steps"][command] = {"run": tool["id"], "in": {}, "out": list(tool["outputs"])}
+        for port, definition in tool["inputs"].items():
+            sources = [f"{item['source']}/{item['source_output']}" for item in connections
+                       if item["target"] == command and item["target_input"] == port]
+            if sources:
+                step["in"][port] = sources[0] if len(sources) == 1 else {"source": sources, "linkMerge": "merge_flattened"}
+                if len(sources) > 1:
+                    main["requirements"] = {"MultipleInputFeatureRequirement": {}}
+            else:
+                key = f"{command}_{port}"
+                if key in main["inputs"]:
+                    raise ValueError(f"Workflow input ID collision: {key}.")
+                main["inputs"][key] = {field: value for field, value in definition.items() if field != "inputBinding"}
+                step["in"][port] = key
+        for port, definition in tool["outputs"].items():
+            if (command, port) not in consumed:
+                key = f"{command}_{port}"
+                if key in main["outputs"]:
+                    raise ValueError(f"Workflow output ID collision: {key}.")
+                main["outputs"][key] = {field: value for field, value in definition.items() if field != "outputBinding"}
+                main["outputs"][key]["outputSource"] = f"{command}/{port}"
+    result = ask(
+        """Describe this workflow and supply an example job. Its CWL tools, ports and
+connections are already built from reviewed interfaces; do not generate CWL.
+Return {label, doc, inputs: {workflow_input_id: {label, doc}},
+tools: {command: {label, doc}}, job: {workflow_input_id: value}}.
+Describe every supplied input and command. Use short labels and one-sentence
+docs of at most 40 words. Explain scientific operations using the cluster evidence.
+Put small-run overrides only in job; source defaults remain in the fixed CWL.
+Use supplied input paths and small-run settings from extra_docs. If a path is
+missing, use a clearly marked /REPLACE_ME/ placeholder and explain it in the
+input doc. Do not fetch data or claim runtime correctness or minimal compute.
+Correct validation findings by changing descriptions or job values only.
+""" + json.dumps({"workflow": main, "clusters": graph.graph["clusters"],
+                   "extra_docs": graph.graph.get("extra_docs", ""),
+                   "io_uncertainties": graph.graph["io_uncertainties"],
+                   "previous": previous, "findings": findings or []}, ensure_ascii=False)
     )
-    add_substeps(candidate["cwl"], graph)
-    return candidate
+    if unknown := set(result["job"]) - set(main["inputs"]):
+        raise ValueError(f"Job contains unknown workflow inputs: {sorted(unknown)}.")
+    for field in ("label", "doc"):
+        main[field] = result[field]
+        for command, tool in tools.items():
+            tool[field] = result["tools"][command][field]
+        for port, definition in main["inputs"].items():
+            definition[field] = result["inputs"][port][field]
+    document = {"cwlVersion": "v1.2", "$namespaces": {"s": "https://schema.org/"},
+                "s:softwareVersion": "0.1", "$graph": [main, *tools.values()]}
+    add_substeps(document, graph)
+    return {"cwl": document, "job": result["job"]}
